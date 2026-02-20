@@ -1,0 +1,45 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.env
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.uv/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.nuxt/
+.vercel/
+.wrangler/
+
+# Test coverage
+coverage/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Claude local overrides (personal, not team)
+CLAUDE.local.md
+.claude/settings.local.json
