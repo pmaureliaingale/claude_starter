@@ -31,10 +31,11 @@ export interface ApplicationFilters {
   dateFrom?: Date;
   dateTo?: Date;
   page?: number;
+  search?: string;
 }
 
 export async function getApplications(filters: ApplicationFilters = {}) {
-  const { source, period, page = 1 } = filters;
+  const { source, period, page = 1, search } = filters;
   let { dateFrom, dateTo } = filters;
 
   if (period && period !== "all") {
@@ -53,6 +54,14 @@ export async function getApplications(filters: ApplicationFilters = {}) {
             ...(dateFrom ? { gte: dateFrom } : {}),
             ...(dateTo ? { lte: dateTo } : {}),
           },
+        }
+      : {}),
+    ...(search?.trim()
+      ? {
+          OR: [
+            { company: { contains: search.trim(), mode: "insensitive" as const } },
+            { job_title: { contains: search.trim(), mode: "insensitive" as const } },
+          ],
         }
       : {}),
   };

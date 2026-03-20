@@ -13,8 +13,9 @@ export async function GET(req: NextRequest) {
   const source = searchParams.get("source") ?? undefined;
   const period = (searchParams.get("period") ?? "all") as Period;
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
+  const search = searchParams.get("search") ?? undefined;
 
-  const result = await getApplications({ source, period, page });
+  const result = await getApplications({ source, period, page, search });
   return NextResponse.json(result);
 }
 
