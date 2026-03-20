@@ -2,7 +2,6 @@ import { getGmailClient, isGmailConfigured } from "./client";
 import { parseApplicationEmail, parseFollowUpEmail } from "./parsers";
 import { matchFollowUpToApplication } from "./matcher";
 import { setTokenExpired } from "./tokenStatus";
-import { fetchAllLinkedInApplications, isLinkedInConfigured } from "@/lib/linkedin/scraper";
 import { prisma } from "@/lib/prisma";
 import type { gmail_v1 } from "googleapis";
 
@@ -10,7 +9,6 @@ export interface SyncResult {
   status: "success" | "failed" | "skipped";
   newApplications: number;
   newFollowUps: number;
-  linkedinApplications: number;
   error?: string;
 }
 
@@ -66,77 +64,43 @@ export async function runGmailSync(): Promise<SyncResult> {
 
   let newApplications = 0;
   let newFollowUps = 0;
-  let linkedinApplications = 0;
 
   try {
-    // --- Sync LinkedIn applications ---
-    if (isLinkedInConfigured()) {
-      try {
-        const linkedInApps = await fetchAllLinkedInApplications();
-
-        for (const app of linkedInApps) {
-          // Deduplicate by job URL (linkedin job ID) or company+title+date combo
-          const existing = await prisma.job_application.findFirst({
-            where: {
-              OR: [
-                ...(app.jobUrl ? [{ job_url: app.jobUrl }] : []),
-                {
-                  company: app.company,
-                  job_title: app.jobTitle,
-                  source: "linkedin",
-                  date_applied: {
-                    gte: new Date(app.dateApplied.getTime() - 86400000),
-                    lte: new Date(app.dateApplied.getTime() + 86400000),
-                  },
-                },
-              ],
-            },
-          });
-
-          if (existing) continue;
-
-          await prisma.job_application.create({
-            data: {
-              company: app.company,
-              job_title: app.jobTitle,
-              date_applied: app.dateApplied,
-              source: "linkedin",
-              status: app.linkedinStatus,
-              job_url: app.jobUrl,
-            },
-          });
-
-          linkedinApplications++;
-        }
-      } catch (linkedInErr) {
-        // LinkedIn sync failure is non-fatal — log and continue with Gmail sync
-        console.error("[Sync] LinkedIn sync failed:", (linkedInErr as Error).message);
-      }
-    }
-
     const gmail = getGmailClient();
     const userId = process.env.GMAIL_USER ?? "me";
     const lastSync = await getLastSyncDate();
     const afterClause = buildAfterClause(lastSync);
 
     // --- Sync application emails ---
-    // Subject query uses afterClause to only fetch new emails.
-    // label:Applications has NO date filter — always scans the full label
-    // so any previously missed emails are always caught.
-    const appQueries = [
+    // label:Applications has NO date filter — always scans full label to catch missed emails.
+    // Subject queries are date-filtered for efficiency.
+    // IDs from the label bypass subject pattern matching (user manually tagged them).
+    const subjectQueries = [
       `subject:"your application was sent to"${afterClause}`,
-      `label:Applications`,
+      `subject:"you applied to"${afterClause}`,
+      `subject:"application submitted"${afterClause}`,
+      `subject:"application received"${afterClause}`,
+      `subject:"we received your application"${afterClause}`,
+      `subject:"thanks for applying"${afterClause}`,
     ];
 
-    // Collect unique message IDs across all queries
     const appMessageIdSet = new Set<string>();
-    for (const query of appQueries) {
+    const labelMessageIdSet = new Set<string>();
+
+    for (const query of subjectQueries) {
       const ids = await fetchAllMessageIds(gmail, userId, query);
       ids.forEach((id) => appMessageIdSet.add(id));
     }
 
-    for (const msgId of appMessageIdSet) {
-      // Skip if already imported
+    const labelIds = await fetchAllMessageIds(gmail, userId, "label:Applications");
+    labelIds.forEach((id) => labelMessageIdSet.add(id));
+
+    // Merge: label IDs take precedence (no subject filter needed)
+    const allAppIds = new Map<string, { fromLabel: boolean }>();
+    appMessageIdSet.forEach((id) => allAppIds.set(id, { fromLabel: false }));
+    labelMessageIdSet.forEach((id) => allAppIds.set(id, { fromLabel: true }));
+
+    for (const [msgId, { fromLabel }] of allAppIds) {
       const existing = await prisma.job_application.findUnique({
         where: { gmail_message_id: msgId },
       });
@@ -148,8 +112,21 @@ export async function runGmailSync(): Promise<SyncResult> {
         format: "full",
       });
 
-      const parsed = parseApplicationEmail(message.data);
+      const parsed = parseApplicationEmail(message.data, { requireSubjectMatch: !fromLabel });
       if (!parsed) continue;
+
+      // Secondary dedup: same company + date (±1 day) already exists
+      const dateApplied = parsed.dateApplied;
+      const duplicate = await prisma.job_application.findFirst({
+        where: {
+          company: parsed.company,
+          date_applied: {
+            gte: new Date(dateApplied.getTime() - 86400000),
+            lte: new Date(dateApplied.getTime() + 86400000),
+          },
+        },
+      });
+      if (duplicate) continue;
 
       await prisma.job_application.create({
         data: {
@@ -180,7 +157,6 @@ export async function runGmailSync(): Promise<SyncResult> {
     }
 
     for (const msgId of followUpMessageIdSet) {
-      // Skip if already imported
       const existing = await prisma.follow_up.findUnique({
         where: { gmail_message_id: msgId },
       });
@@ -211,7 +187,6 @@ export async function runGmailSync(): Promise<SyncResult> {
       newFollowUps++;
     }
 
-    // Log success
     await prisma.sync_log.create({
       data: {
         status: "success",
@@ -222,7 +197,7 @@ export async function runGmailSync(): Promise<SyncResult> {
 
     setTokenExpired(false);
 
-    return { status: "success", newApplications, newFollowUps, linkedinApplications };
+    return { status: "success", newApplications, newFollowUps };
   } catch (err) {
     const error = err as Error & { code?: number; message?: string };
     const errorMessage = error.message ?? "Unknown error";
@@ -248,7 +223,6 @@ export async function runGmailSync(): Promise<SyncResult> {
       status: "failed",
       newApplications: 0,
       newFollowUps: 0,
-      linkedinApplications: 0,
       error: errorMessage,
     };
   }

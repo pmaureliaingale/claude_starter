@@ -11,10 +11,11 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const source = searchParams.get("source") ?? undefined;
-  const period = (searchParams.get("period") ?? "month") as Period;
+  const period = (searchParams.get("period") ?? "all") as Period;
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
 
-  const applications = await getApplications({ source, period });
-  return NextResponse.json(applications);
+  const result = await getApplications({ source, period, page });
+  return NextResponse.json(result);
 }
 
 export async function POST(req: NextRequest) {
