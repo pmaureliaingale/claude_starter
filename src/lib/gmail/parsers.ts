@@ -94,13 +94,50 @@ function decodeBase64(encoded: string): string {
   }
 }
 
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#160;/g, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractRawHtml(payload: gmail_v1.Schema$MessagePart | undefined, depth = 0): string {
+  if (!payload || depth > 5) return "";
+
+  if (payload.body?.data && payload.mimeType === "text/html") {
+    return decodeBase64(payload.body.data);
+  }
+
+  if (payload.parts) {
+    for (const part of payload.parts) {
+      if (part.mimeType === "text/html" && part.body?.data) {
+        return decodeBase64(part.body.data);
+      }
+    }
+    for (const part of payload.parts) {
+      if (part.mimeType?.startsWith("multipart/")) {
+        const result = extractRawHtml(part, depth + 1);
+        if (result) return result;
+      }
+    }
+  }
+
+  return "";
+}
+
 function extractEmailBody(payload: gmail_v1.Schema$MessagePart | undefined, depth = 0): string {
   if (!payload || depth > 5) return "";
 
   if (payload.body?.data) {
     const text = decodeBase64(payload.body.data);
     if (payload.mimeType === "text/html") {
-      return text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      return decodeHtmlEntities(text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "").replace(/<[^>]+>/g, " "));
     }
     return text;
   }
@@ -119,7 +156,8 @@ function extractEmailBody(payload: gmail_v1.Schema$MessagePart | undefined, dept
     }
     for (const part of payload.parts) {
       if (part.mimeType === "text/html" && part.body?.data) {
-        return decodeBase64(part.body.data).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        const html = decodeBase64(part.body.data);
+        return decodeHtmlEntities(html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "").replace(/<[^>]+>/g, " "));
       }
     }
   }
@@ -156,34 +194,73 @@ function detectSource(from: string, body: string): string {
   return "other";
 }
 
+const JOB_TITLE_WORDS = /\b(?:VP|SVP|EVP|Director|Manager|Engineer|CTO|CIO|CPO|COO|CEO|Head|Lead|Principal|Senior|Staff|Officer|President|Executive|Architect|Analyst|Developer|Specialist|Coordinator|Consultant|Associate|Chief)\b/i;
+
 function extractCompanyFromSubject(subject: string): string {
   const patterns = [
+    // Explicit application confirmation patterns (highest confidence)
     /sent to (.+?)(?:\.|$)/i,
     /applied to (.+?)(?:\.|$)/i,
     /applying to (.+?)(?:\.|$)/i,
     /application to (.+?)(?:\s+[-–]|\.|$)/i,
     /application (?:submitted|received) (?:for .+? )?at (.+?)(?:\.|$)/i,
     /you applied .+? at (.+?)(?:\.|$)/i,
+    // "Your Application with [Company] [Job Title]" (Workday)
+    /your application with (.+?)\s+(?=VP\b|SVP\b|EVP\b|Director\b|Manager\b|Engineer\b|CTO\b|CIO\b|CPO\b|COO\b|CEO\b|Head\b|Lead\b|Principal\b|Senior\b|Staff\b|Officer\b|President\b|Executive\b|Architect\b|Analyst\b|Developer\b|Chief\b)/i,
+    // "[Company] - [Job Title]" or "[Company]: [Job Title]" where second part has job title words
+    /^(.+?)\s*[-–:]\s*.+/i,
+    // "[Job Title] @ [Company]"
+    /(?:.+?)\s*@\s*(.+)$/i,
   ];
 
   for (const pattern of patterns) {
     const match = subject.match(pattern);
-    if (match) return match[1].trim();
+    if (match) {
+      const candidate = match[1].trim();
+      // Reject if too long (likely grabbed the whole subject) or contains a job title word itself
+      if (candidate.length > 0 && candidate.length < 60 && !JOB_TITLE_WORDS.test(candidate)) {
+        return candidate;
+      }
+    }
   }
 
   return "";
 }
 
 function extractJobTitleFromSubject(subject: string): string {
+  // Strip personal name prefix — "Pablo, your application..." → "your application..."
+  const cleaned = subject.replace(/^[A-Z][a-z]+,\s*/i, "");
+
   const patterns = [
+    // "applied for VP of Engineering at Company" / "applied for the VP of Engineering role"
     /applied (?:for|to) the (.+?) (?:position|role|job)/i,
-    /application for (.+?) at /i,
-    /you applied for (.+?) at /i,
+    /applied for (.+?) at /i,
+    /you applied (?:for|to) (.+?) at /i,
+    // "your application for VP of Engineering was sent to..."
+    /your application for (.+?) (?:was|has been|is)/i,
+    // "application for VP of Engineering at Company" / "application for: VP of Engineering"
+    /application for[:\s]+(.+?)(?:\s+at\s+|\s*[-–|]\s*|\.|$)/i,
+    // "application submitted for VP of Engineering"
+    /application (?:submitted|received) for (.+?)(?:\s+at\s+|\.|$)/i,
+    // "we received your application for VP of Engineering"
+    /received your application for (.+?)(?:\s+at\s+|\.|$)/i,
+    // "Your Application with Synchrony SVP, Technology Leader..." (Workday)
+    /your application with \S[\w\s,.&']+?\s+((?:VP|SVP|EVP|Director|Manager|CTO|CIO|CPO|COO|CEO|Head|Lead|Principal|Senior|Staff|Officer|President|Executive|Architect|Analyst|Developer|Chief)\b.+)$/i,
+    // "[Job Title] @ [Company]" (Indeed/job board notifications)
+    /^(.+?)\s*@\s*\S/i,
+    // "[Company] - [Job Title]" or "[Company]: [Job Title]"
+    /^[^-–:@]+[-–:]\s*(.+)$/i,
   ];
 
   for (const pattern of patterns) {
-    const match = subject.match(pattern);
-    if (match) return match[1].trim();
+    const match = cleaned.match(pattern);
+    if (match) {
+      const title = match[1].trim();
+      // Sanity check: reject if too long (likely grabbed too much) or looks like a company name sentence
+      if (title.length > 0 && title.length < 80 && !/^(the|a|an)\s/i.test(title)) {
+        return title;
+      }
+    }
   }
 
   return "";
@@ -203,19 +280,58 @@ function extractCompanyFromBody(body: string): string {
   return "";
 }
 
+function extractJobTitleFromHtml(html: string): string {
+  // Strip style/script blocks first to prevent CSS content from matching
+  const cleaned = html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
+
+  // ATS table format: <td>Job Title</td><td>Senior Engineer</td>
+  // Works for Greenhouse, iCIMS, Workday, Lever, Taleo, and others
+  const tablePatterns = [
+    /<td[^>]*>\s*(?:job\s*title|position(?: title)?|role|opening)\s*<\/td>\s*<td[^>]*>\s*([^<]+?)\s*<\/td>/i,
+    /<th[^>]*>\s*(?:job\s*title|position(?: title)?|role|opening)\s*<\/th>\s*<td[^>]*>\s*([^<]+?)\s*<\/td>/i,
+    // Label: Value in a definition list or span
+    /<(?:dt|strong|b|label)[^>]*>\s*(?:job\s*title|position(?: title)?|role)\s*[:]\s*<\/(?:dt|strong|b|label)>\s*<(?:dd|span|td|p)[^>]*>\s*([^<]+?)\s*</i,
+    // "Position: <strong>Title</strong>" or "<strong>Position:</strong> Title"
+    /(?:job title|position|role)\s*:\s*<[^>]+>\s*([^<]{3,80})\s*</i,
+  ];
+
+  for (const pattern of tablePatterns) {
+    const match = cleaned.match(pattern);
+    if (match) {
+      const title = decodeHtmlEntities((match[1] ?? match[2] ?? "").trim());
+      if (title.length > 2 && title.length < 100) return title;
+    }
+  }
+
+  return "";
+}
+
 function extractJobTitleFromBody(body: string): string {
   const patterns = [
-    /for the position of (.+?)(?:\n|\r|\.)/i,
-    /for the role of (.+?)(?:\n|\r|\.)/i,
-    /applied for (.+?)(?:\n|\r|\.| at )/i,
-    /position:\s*(.+?)(?:\n|\r|\.)/i,
-    /job title:\s*(.+?)(?:\n|\r|\.)/i,
-    /role:\s*(.+?)(?:\n|\r|\.)/i,
+    // Labeled fields (most reliable)
+    /job\s*title\s*[:\-]\s*([^\n\r|.]{3,80})/i,
+    /position\s*(?:title)?\s*[:\-]\s*([^\n\r|.]{3,80})/i,
+    /role\s*[:\-]\s*([^\n\r|.]{3,80})/i,
+    /opening\s*[:\-]\s*([^\n\r|.]{3,80})/i,
+    // Prose patterns
+    /for the (?:position|role) of ([^\n\r.]{3,80}?)(?:\n|\r|\.)/i,
+    /applied for (?:the )?([^\n\r.]{3,80}?)(?:\s+at\s+|\n|\r|\.)/i,
+    /you(?:'ve| have) applied (?:for|to) (?:the )?([^\n\r.]{3,80}?)(?:\s+(?:position|role|opening|at)\s+|\n|\r|\.)/i,
+    /application for (?:the )?([^\n\r.]{3,80}?)(?:\s+at\s+|\n|\r|\.)/i,
+    /submitted (?:your )?application for (?:the )?([^\n\r.]{3,80}?)(?:\s+at\s+|\n|\r|\.)/i,
+    /received (?:your )?application for (?:the )?([^\n\r.]{3,80}?)(?:\s+at\s+|\n|\r|\.)/i,
+    /interest in the ([^\n\r.]{3,80}?) (?:position|role|opening)/i,
+    /applying (?:for|to) (?:the )?([^\n\r.]{3,80}?) (?:position|role|opening)/i,
   ];
 
   for (const pattern of patterns) {
     const match = body.match(pattern);
-    if (match) return match[1].trim();
+    if (match) {
+      const title = match[1].trim();
+      if (title.length > 2 && title.length < 100) return title;
+    }
   }
 
   return "";
@@ -265,6 +381,7 @@ export function parseApplicationEmail(
     }
 
     const body = extractEmailBody(message.payload);
+    const rawHtml = extractRawHtml(message.payload);
     const source = detectSource(from, body);
 
     // Handle "Indeed Application: Job Title" format
@@ -285,11 +402,12 @@ export function parseApplicationEmail(
 
     const company =
       extractCompanyFromSubject(subject) ||
-      subject.replace(/.*sent to /i, "").replace(/.*applied to /i, "").trim() ||
+      extractCompanyFromBody(body) ||
       "Unknown Company";
 
     const jobTitle =
       extractJobTitleFromSubject(subject) ||
+      (rawHtml ? extractJobTitleFromHtml(rawHtml) : "") ||
       extractJobTitleFromBody(body) ||
       "Unknown Position";
 
@@ -307,6 +425,50 @@ export function parseApplicationEmail(
     };
   } catch {
     return null;
+  }
+}
+
+export interface ExtractedFields {
+  jobTitle: string | null;
+  company: string | null;
+}
+
+/**
+ * Extracts job title and company from a Gmail message without any subject filtering.
+ * Used for re-parsing existing applications — skips all accept/reject pattern checks
+ * since we already know the record is a valid application.
+ */
+export function extractFieldsFromMessage(message: gmail_v1.Schema$Message): ExtractedFields {
+  try {
+    const headers = message.payload?.headers ?? [];
+    const subject = getHeader(headers, "subject");
+
+    const body = extractEmailBody(message.payload);
+    const rawHtml = extractRawHtml(message.payload);
+
+    // Indeed special-case: "Indeed Application: Job Title"
+    const indeedMatch = subject.match(/^indeed application:\s*(.+)/i);
+    if (indeedMatch) {
+      return {
+        jobTitle: indeedMatch[1].trim(),
+        company: extractCompanyFromBody(body) || null,
+      };
+    }
+
+    const jobTitle =
+      extractJobTitleFromSubject(subject) ||
+      (rawHtml ? extractJobTitleFromHtml(rawHtml) : "") ||
+      extractJobTitleFromBody(body) ||
+      null;
+
+    const company =
+      extractCompanyFromSubject(subject) ||
+      extractCompanyFromBody(body) ||
+      null;
+
+    return { jobTitle, company };
+  } catch {
+    return { jobTitle: null, company: null };
   }
 }
 

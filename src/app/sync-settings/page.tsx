@@ -2,6 +2,7 @@ import { requireSession } from "@/lib/session";
 import { Nav } from "@/components/Nav";
 import { SyncSettingsForm } from "@/components/sync/SyncSettingsForm";
 import { LinkedInImportCard } from "@/components/sync/LinkedInImportCard";
+import { ReparseCard } from "@/components/sync/ReparseCard";
 import { prisma } from "@/lib/prisma";
 
 export default async function SyncSettingsPage() {
@@ -26,6 +27,7 @@ export default async function SyncSettingsPage() {
 
           <SyncSettingsForm schedule={schedule} lastLog={lastLog} />
           <LinkedInImportCard />
+          <ReparseCard />
         </div>
       </main>
     </div>
