@@ -10,7 +10,7 @@ import { isTokenExpired } from "@/lib/gmail/tokenStatus";
 import type { Period } from "@/lib/applications";
 
 interface PageProps {
-  searchParams: Promise<{ period?: string; source?: string; page?: string }>;
+  searchParams: Promise<{ period?: string; source?: string; page?: string; search?: string }>;
 }
 
 export default async function DashboardPage({ searchParams }: PageProps) {
@@ -20,9 +20,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const period = (params.period ?? "all") as Period;
   const source = params.source ?? "all";
   const page = Math.max(1, parseInt(params.page ?? "1", 10));
+  const search = params.search ?? "";
 
   const [{ data: applications, total, pageSize }, stats, sources] = await Promise.all([
-    getApplications({ period, source, page }),
+    getApplications({ period, source, page, search }),
     getSummaryStats(period),
     getUniqueSources(),
   ]);
