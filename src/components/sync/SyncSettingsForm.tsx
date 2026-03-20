@@ -66,9 +66,8 @@ export function SyncSettingsForm({ schedule, lastLog }: SyncSettingsFormProps) {
         toast.error(`Sync failed: ${data.error ?? "Unknown error"}`);
       } else {
         const parts = [];
-        if (data.linkedinApplications > 0) parts.push(`${data.linkedinApplications} from LinkedIn`);
-        if (data.newApplications > 0) parts.push(`${data.newApplications} from Gmail`);
-        if (data.newFollowUps > 0) parts.push(`${data.newFollowUps} follow-ups`);
+        if (data.newApplications > 0) parts.push(`${data.newApplications} new application${data.newApplications !== 1 ? "s" : ""}`);
+        if (data.newFollowUps > 0) parts.push(`${data.newFollowUps} follow-up${data.newFollowUps !== 1 ? "s" : ""}`);
         toast.success(parts.length > 0 ? `Sync complete — ${parts.join(", ")}` : "Sync complete — no new items");
       }
     } catch {

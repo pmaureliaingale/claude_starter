@@ -28,6 +28,7 @@ export function FilterBar({ sources }: FilterBarProps) {
     (key: string, value: string) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set(key, value);
+      params.delete("page"); // reset to page 1 on filter change
       router.push(`/?${params.toString()}`);
     },
     [router, searchParams]

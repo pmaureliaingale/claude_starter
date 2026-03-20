@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { X, ExternalLink, ChevronDown, ChevronUp, Mail, Calendar } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, ExternalLink, ChevronDown, ChevronUp, Mail, Calendar, Inbox } from "lucide-react";
 import { StatusBadge, ALL_STATUSES } from "@/components/StatusBadge";
 import { SourceBadge } from "@/components/SourceBadge";
 import { formatDate, formatDatetime } from "@/lib/utils";
@@ -14,9 +14,43 @@ interface ApplicationModalProps {
   onStatusUpdate: (id: string, status: string) => void;
 }
 
+interface EmailData {
+  body: string | null;
+  subject?: string;
+  from?: string;
+  date?: string;
+  reason?: string;
+}
+
 export function ApplicationModal({ application, onClose, onStatusUpdate }: ApplicationModalProps) {
   const [expandedFollowUp, setExpandedFollowUp] = useState<string | null>(null);
+  const [emailExpanded, setEmailExpanded] = useState(false);
+  const [emailData, setEmailData] = useState<EmailData | null>(null);
+  const [emailLoading, setEmailLoading] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+
+  useEffect(() => {
+    setEmailExpanded(false);
+    setEmailData(null);
+  }, [application.id]);
+
+  async function loadEmail() {
+    if (emailData !== null) {
+      setEmailExpanded((v) => !v);
+      return;
+    }
+    setEmailExpanded(true);
+    setEmailLoading(true);
+    try {
+      const res = await fetch(`/api/applications/${application.id}/email`);
+      const data = await res.json();
+      setEmailData(data);
+    } catch {
+      setEmailData({ body: null, reason: "fetch_failed" });
+    } finally {
+      setEmailLoading(false);
+    }
+  }
 
   const handleStatusChange = async (newStatus: string) => {
     setIsUpdating(true);
@@ -37,6 +71,8 @@ export function ApplicationModal({ application, onClose, onStatusUpdate }: Appli
       setIsUpdating(false);
     }
   };
+
+  const hasGmailId = !!application.gmail_message_id;
 
   return (
     <>
@@ -112,6 +148,70 @@ export function ApplicationModal({ application, onClose, onStatusUpdate }: Appli
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Original email */}
+            <div>
+              <button
+                onClick={hasGmailId ? loadEmail : undefined}
+                disabled={!hasGmailId}
+                className={`w-full flex items-center justify-between gap-3 rounded-xl px-4 py-3 border transition-colors ${
+                  hasGmailId
+                    ? "bg-white/5 border-white/10 hover:bg-white/10 cursor-pointer"
+                    : "bg-white/[0.02] border-white/5 cursor-default"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Inbox className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-sm font-semibold text-white">Original Email</span>
+                  {!hasGmailId && (
+                    <span className="text-xs text-slate-500">(not from Gmail)</span>
+                  )}
+                </div>
+                {hasGmailId && (
+                  emailExpanded
+                    ? <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" />
+                    : <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                )}
+              </button>
+
+              {emailExpanded && (
+                <div className="mt-2 rounded-xl bg-white/5 border border-white/10 overflow-hidden">
+                  {emailLoading ? (
+                    <div className="px-4 py-6 text-center">
+                      <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                      <p className="text-xs text-slate-500">Loading email...</p>
+                    </div>
+                  ) : emailData?.body ? (
+                    <>
+                      {emailData.subject && (
+                        <div className="px-4 py-3 border-b border-white/10 space-y-1">
+                          <p className="text-xs text-slate-500">
+                            <span className="font-medium text-slate-400">From:</span> {emailData.from}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            <span className="font-medium text-slate-400">Subject:</span> {emailData.subject}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            <span className="font-medium text-slate-400">Date:</span> {emailData.date}
+                          </p>
+                        </div>
+                      )}
+                      <div className="px-4 py-4 text-sm text-slate-300 whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto">
+                        {emailData.body}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="px-4 py-5 text-center">
+                      <p className="text-sm text-slate-500">
+                        {emailData?.reason === "fetch_failed"
+                          ? "Could not load email — check Gmail connection"
+                          : "No email body available"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Follow-ups */}

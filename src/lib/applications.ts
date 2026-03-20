@@ -23,15 +23,18 @@ function getPeriodDateRange(period: Period): { from: Date; to: Date } | null {
   return { from, to };
 }
 
+export const PAGE_SIZE = 25;
+
 export interface ApplicationFilters {
   source?: string;
   period?: Period;
   dateFrom?: Date;
   dateTo?: Date;
+  page?: number;
 }
 
 export async function getApplications(filters: ApplicationFilters = {}) {
-  const { source, period } = filters;
+  const { source, period, page = 1 } = filters;
   let { dateFrom, dateTo } = filters;
 
   if (period && period !== "all") {
@@ -42,25 +45,30 @@ export async function getApplications(filters: ApplicationFilters = {}) {
     }
   }
 
-  return prisma.job_application.findMany({
-    where: {
-      ...(source && source !== "all" ? { source } : {}),
-      ...(dateFrom || dateTo
-        ? {
-            date_applied: {
-              ...(dateFrom ? { gte: dateFrom } : {}),
-              ...(dateTo ? { lte: dateTo } : {}),
-            },
-          }
-        : {}),
-    },
-    include: {
-      follow_ups: {
-        orderBy: { received_at: "asc" },
-      },
-    },
-    orderBy: { date_applied: "desc" },
-  });
+  const where = {
+    ...(source && source !== "all" ? { source } : {}),
+    ...(dateFrom || dateTo
+      ? {
+          date_applied: {
+            ...(dateFrom ? { gte: dateFrom } : {}),
+            ...(dateTo ? { lte: dateTo } : {}),
+          },
+        }
+      : {}),
+  };
+
+  const [data, total] = await Promise.all([
+    prisma.job_application.findMany({
+      where,
+      include: { follow_ups: { orderBy: { received_at: "asc" } } },
+      orderBy: { date_applied: "desc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+    prisma.job_application.count({ where }),
+  ]);
+
+  return { data, total, page, pageSize: PAGE_SIZE };
 }
 
 export async function getApplicationById(id: string) {
