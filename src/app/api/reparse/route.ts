@@ -1,14 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getGmailClient } from "@/lib/gmail/client";
 import { extractFieldsFromMessage } from "@/lib/gmail/parsers";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const force = new URL(req.url).searchParams.get("force") === "true";
   const gmail = getGmailClient();
 
   // Only re-parse records imported from Gmail (have a real message ID)
@@ -31,12 +32,17 @@ export async function POST() {
 
       const { jobTitle, company } = extractFieldsFromMessage(msg.data);
 
-      const titleChanged =
-        jobTitle && jobTitle !== "Unknown Position" && jobTitle !== app.job_title;
-      const companyChanged =
-        company && company !== "Unknown Company" && company !== app.company;
+      const hasValidTitle = jobTitle && jobTitle !== "Unknown Position";
+      const hasValidCompany = company && company !== "Unknown Company";
 
-      if (!titleChanged && !companyChanged) {
+      const titleChanged = hasValidTitle && jobTitle !== app.job_title;
+      const companyChanged = hasValidCompany && company !== app.company;
+
+      const shouldUpdate = force
+        ? hasValidTitle || hasValidCompany
+        : titleChanged || companyChanged;
+
+      if (!shouldUpdate) {
         skipped++;
         continue;
       }
@@ -44,8 +50,8 @@ export async function POST() {
       await prisma.job_application.update({
         where: { id: app.id },
         data: {
-          ...(titleChanged ? { job_title: jobTitle } : {}),
-          ...(companyChanged ? { company } : {}),
+          ...(force || titleChanged) && hasValidTitle ? { job_title: jobTitle! } : {},
+          ...(force || companyChanged) && hasValidCompany ? { company: company! } : {},
         },
       });
 

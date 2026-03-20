@@ -13,13 +13,15 @@ interface ReparseResult {
 
 export function ReparseCard() {
   const [loading, setLoading] = useState(false);
+  const [force, setForce] = useState(false);
   const [result, setResult] = useState<ReparseResult | null>(null);
 
   const handleReparse = async () => {
     setLoading(true);
     setResult(null);
     try {
-      const res = await fetch("/api/reparse", { method: "POST" });
+      const url = force ? "/api/reparse?force=true" : "/api/reparse";
+      const res = await fetch(url, { method: "POST" });
       if (!res.ok) {
         toast.error("Re-parse failed");
         return;
@@ -44,14 +46,26 @@ export function ReparseCard() {
         </p>
       </div>
 
-      <button
-        onClick={handleReparse}
-        disabled={loading}
-        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
-      >
-        <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-        {loading ? "Re-parsing…" : "Run Re-parse"}
-      </button>
+      <div className="flex items-center gap-4 flex-wrap">
+        <button
+          onClick={handleReparse}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          {loading ? "Re-parsing…" : "Run Re-parse"}
+        </button>
+
+        <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={force}
+            onChange={(e) => setForce(e.target.checked)}
+            className="rounded border-white/20 bg-white/5 text-purple-500 focus:ring-purple-500"
+          />
+          Force overwrite all fields
+        </label>
+      </div>
 
       {result && (
         <div className="grid grid-cols-3 gap-3 pt-1">
