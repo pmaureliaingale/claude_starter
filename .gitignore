@@ -14,9 +14,11 @@ venv/
 
 # Build output
 dist/
+dist-server/
 build/
 out/
 .next/
+*.tsbuildinfo
 .nuxt/
 .vercel/
 .wrangler/

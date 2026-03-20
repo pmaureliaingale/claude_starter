@@ -1,0 +1,70 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model job_application {
+  id               String    @id @default(uuid())
+  company          String
+  job_title        String
+  date_applied     DateTime
+  source           String    // 'linkedin', 'gmail', 'builtin', 'monster', etc.
+  status           String    @default("applied") // 'applied', 'responded', 'interviewing', 'offer', 'rejected', 'withdrawn', 'manual_review'
+  job_url          String?
+  gmail_thread_id  String?
+  gmail_message_id String?   @unique
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
+  follow_ups follow_up[]
+}
+
+model follow_up {
+  id                  String          @id @default(uuid())
+  job_application_id  String
+  email_subject       String
+  email_body          String
+  received_at         DateTime
+  source              String          // 'gmail'
+  gmail_message_id    String?         @unique
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+
+  job_application job_application @relation(fields: [job_application_id], references: [id], onDelete: Cascade)
+}
+
+model sync_log {
+  id               String   @id @default(uuid())
+  synced_at        DateTime @default(now())
+  status           String   // 'success', 'failed'
+  new_applications Int      @default(0)
+  new_follow_ups   Int      @default(0)
+  error_message    String?
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+}
+
+model sync_schedule {
+  id            String   @id @default(uuid())
+  frequency_hrs Int      @default(3)
+  start_time    String   @default("08:00") // stored as "HH:MM"
+  end_time      String   @default("17:00")
+  timezone      String   @default("America/Chicago")
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+}
+
+model user {
+  id            String   @id @default(uuid())
+  username      String   @unique
+  email         String   @unique
+  password_hash String
+  role          String   @default("viewer") // 'admin', 'viewer'
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+}
