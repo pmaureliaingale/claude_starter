@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { SourceBadge } from "@/components/SourceBadge";
 import { GlassCard } from "@/components/GlassCard";
 import { ApplicationModal } from "@/components/dashboard/ApplicationModal";
-import { formatDate } from "@/lib/utils";
+import { LocalDate } from "@/components/LocalDate";
 import { MessageSquare, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
 import type { job_application, follow_up } from "@prisma/client";
 
@@ -98,7 +98,7 @@ export function ApplicationList({ applications, periodLabel, total, page, pageSi
                     </p>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <SourceBadge source={app.source} />
-                      <span className="text-xs text-slate-500">{formatDate(app.date_applied)}</span>
+                      <LocalDate date={app.date_applied} className="text-xs text-slate-500" />
                     </div>
                   </div>
                   {app.follow_ups.length > 0 && (
@@ -130,7 +130,7 @@ export function ApplicationList({ applications, periodLabel, total, page, pageSi
                     <ExternalLink className="w-3 h-3 text-slate-500 shrink-0" />
                   )}
                 </div>
-                <span className="text-sm text-slate-400">{formatDate(app.date_applied)}</span>
+                <LocalDate date={app.date_applied} className="text-sm text-slate-400" />
                 <SourceBadge source={app.source} />
                 <StatusBadge status={app.status} />
               </div>

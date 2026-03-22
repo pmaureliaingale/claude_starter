@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { X, ExternalLink, ChevronDown, ChevronUp, Mail, Calendar, Inbox } from "lucide-react";
 import { StatusBadge, ALL_STATUSES } from "@/components/StatusBadge";
 import { SourceBadge } from "@/components/SourceBadge";
-import { formatDate, formatDatetime } from "@/lib/utils";
+import { LocalDate } from "@/components/LocalDate";
 import { toast } from "sonner";
 import type { ApplicationWithFollowUps } from "./ApplicationList";
 
@@ -110,7 +110,7 @@ export function ApplicationModal({ application, onClose, onStatusUpdate }: Appli
                 <p className="text-xs text-slate-500 mb-1">Date Applied</p>
                 <p className="text-sm text-slate-300 flex items-center gap-1">
                   <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                  {formatDate(application.date_applied)}
+                  <LocalDate date={application.date_applied} />
                 </p>
               </div>
               {application.job_url && (
@@ -250,7 +250,7 @@ export function ApplicationModal({ application, onClose, onStatusUpdate }: Appli
                             {followUp.email_subject}
                           </p>
                           <p className="text-xs text-slate-500 mt-0.5">
-                            {formatDatetime(followUp.received_at)}
+                            <LocalDate date={followUp.received_at} showTime />
                           </p>
                         </div>
                         {expandedFollowUp === followUp.id ? (

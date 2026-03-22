@@ -5,7 +5,7 @@ import { GlassCard } from "@/components/GlassCard";
 import { RefreshCw, Save, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import type { sync_schedule, sync_log } from "@prisma/client";
-import { formatDatetime } from "@/lib/utils";
+import { LocalDate } from "@/components/LocalDate";
 
 const FREQUENCY_OPTIONS = [
   { value: 1, label: "Every hour" },
@@ -108,7 +108,7 @@ export function SyncSettingsForm({ schedule, lastLog }: SyncSettingsFormProps) {
             <div>
               <p className="text-sm text-slate-300">
                 {lastLog.status === "success" ? "Succeeded" : "Failed"} at{" "}
-                {formatDatetime(lastLog.synced_at)}
+                <LocalDate date={lastLog.synced_at} showTime />
               </p>
               {lastLog.status === "success" && (
                 <p className="text-xs text-slate-500 mt-0.5">
