@@ -115,18 +115,22 @@ export async function runGmailSync(): Promise<SyncResult> {
       const parsed = parseApplicationEmail(message.data, { requireSubjectMatch: !fromLabel });
       if (!parsed) continue;
 
-      // Secondary dedup: same company + date (±1 day) already exists
+      // Secondary dedup: same company + job title + date (±1 day) already exists.
+      // Only run when company is known — "Unknown Company" is too generic to dedup on.
       const dateApplied = parsed.dateApplied;
-      const duplicate = await prisma.job_application.findFirst({
-        where: {
-          company: parsed.company,
-          date_applied: {
-            gte: new Date(dateApplied.getTime() - 86400000),
-            lte: new Date(dateApplied.getTime() + 86400000),
+      if (parsed.company !== "Unknown Company") {
+        const duplicate = await prisma.job_application.findFirst({
+          where: {
+            company: parsed.company,
+            job_title: parsed.jobTitle,
+            date_applied: {
+              gte: new Date(dateApplied.getTime() - 86400000),
+              lte: new Date(dateApplied.getTime() + 86400000),
+            },
           },
-        },
-      });
-      if (duplicate) continue;
+        });
+        if (duplicate) continue;
+      }
 
       await prisma.job_application.create({
         data: {
