@@ -63,8 +63,8 @@ const APPLICATION_SUBJECT_PATTERNS = [
   /^indeed application:/i,
 ];
 
-// Subjects to always reject — replies, threads, follow-ups, non-applications
-const LABEL_REJECT_PATTERNS = [
+// Always reject — these are never application confirmations regardless of source
+const HARD_REJECT_PATTERNS = [
   /^Re:/i,
   /^RE:/i,
   /^Fwd:/i,
@@ -73,17 +73,20 @@ const LABEL_REJECT_PATTERNS = [
   /^Interview with/i,
   /^Next steps for your application/i,
   /^News about your application/i,
-  /^Thank you for applying/i,
-  /^Thanks for applying/i,
-  /^Thank You For Applying/i,
-  /^Thank you for your application/i,
-  /^Thank You for Your Application/i,
-  /^Thank you for your interest/i,
-  /^Thank You for Your Interest/i,
-  /^We received your application/i,
-  /^Your application has been received/i,
   /^Update on your application/i,
   /^Application update/i,
+];
+
+// Only reject when email comes from a subject query (not user-labeled).
+// "Thank you for applying" etc. are valid ATS confirmations — if the user labeled
+// the email as Applications, trust their judgment and let it through.
+const SOFT_REJECT_PATTERNS = [
+  /^Thank you for applying/i,
+  /^Thanks for applying/i,
+  /^Thank you for your application/i,
+  /^Thank you for your interest/i,
+  /^We received your application/i,
+  /^Your application has been received/i,
 ];
 
 function decodeBase64(encoded: string): string {
@@ -371,8 +374,12 @@ export function parseApplicationEmail(
     const from = getHeader(headers, "from");
     const dateStr = getHeader(headers, "date");
 
-    // Always reject obvious non-application subjects (replies, forwards, interview threads)
-    if (LABEL_REJECT_PATTERNS.some((p) => p.test(subject))) return null;
+    // Always reject clear non-applications (replies, forwards, interview threads, status updates)
+    if (HARD_REJECT_PATTERNS.some((p) => p.test(subject))) return null;
+
+    // For subject-query emails, also reject ambiguous subjects like "Thank you for applying"
+    // (could be a follow-up acknowledgment). Label-sourced emails skip this — user labeled them.
+    if (requireSubjectMatch && SOFT_REJECT_PATTERNS.some((p) => p.test(subject))) return null;
 
     // For label-sourced emails, skip the positive subject match requirement
     if (requireSubjectMatch) {
